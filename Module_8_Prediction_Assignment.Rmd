@@ -1,0 +1,144 @@
+---
+title: "Prediction Assignment Writeup"
+author: "PF"
+date: "21 4 2017"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+One thing that people regularly do is quantify how much of a particular activity they do, 
+but they rarely quantify how well they do it. In this excercise, we are asked to predict the
+way 6 participants performed barbell lifts by using machine learning methods and data from 
+accelerometers on the belt, forearm, arm, and dumbell. Barbell lifts were performed in 5
+different fashions:
+
+- exactly according to the specification (Class A)
+- throwing the elbows to the front (Class B)
+- lifting the dumbbell only halfway (Class C) 
+- lowering the dumbbell only halfway (Class D)
+- throwing the hips to the front (Class E).
+
+In the following analysis, a random forest approach was used to predict the way participants
+performed barbell lifts. It predicts with over 99 percent accuracy.
+
+## Data and Data Preprocessing
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral 
+Dumbbell Biceps Curl in five different fashions. Body sensors delivered biometric data. The
+data set consists of 160 variables and over 19000 observations. The data set is known as
+WLE dataset (Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative 
+Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference 
+in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013).
+
+For analysis, the data was downloaded and #DIV/0! as well as empty cells replaced by NA.
+```{r}
+library(caret)
+TrainingUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+TestingUrl  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+TrainingFile<-"pml-traininig.csv"
+TestingFile<-"pml-testing.csv"
+
+if(!file.exists(TrainingFile)){
+        download.file(TrainingUrl,destfile = TrainingFile)
+}
+training <- read.csv(TrainingFile, na.strings=c("#DIV/0!", "", "NA"), stringsAsFactors = FALSE)
+if(!file.exists(TestingFile)){
+        download.file(TestingUrl,destfile = TestingFile)
+}
+testing  <- read.csv(TestingFile, na.strings=c("#DIV/0!", "", "NA"), stringsAsFactors = FALSE)
+```
+
+Then, the training set was split into a training and testing set to apply cross validation
+for a better estimate of the test set accuracy.
+
+```{r}
+set.seed(123)
+inTrain <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
+TrainingSet <- training[inTrain,]
+TestingSet <- training[-inTrain,]
+dim(TrainingSet)
+dim(TestingSet)
+```
+
+The goal of the analysis is to predict the way the exercise was executed (i.e., to predict 
+the variable classe). One approach to do this is to use the data from the body sensors as 
+in the paper mentioned above. The corresponding variables ar Euler angles (roll, pitch, yaw), 
+raw accelerometer, gyroscope and magnetometer.
+```{r}
+relvar <- c(grep("^accel", names(training)), grep("^gyros", names(training)), grep("^magnet", 
+        names(training)), grep("^roll", names(training)), grep("^pitch", names(training)), 
+        grep("^yaw", names(training)), grep("^total", names(training)))
+which(colnames(TrainingSet) == "classe")
+
+TrainingSet <- TrainingSet[, c(relvar, 160)]
+TestingSet <- TestingSet[, c(relvar, 160)]
+```
+A quick check shows that the remaining training set has no variables with low variability
+left, which would be bad predictors. 
+```{r}
+nearZeroVar(TrainingSet[,-53], saveMetrics = TRUE)
+```
+Because the variables differ in their magnitude, standardization will be used.
+
+##Prediction Analysis
+
+Following the authors of the paper mentioned above, a random forest approach is applied, 
+including cross validation. 
+```{r}
+set.seed(456)
+cv <- trainControl(method = "cv", number = 5)
+modFit <- train(classe ~ ., data = TrainingSet, method = "rf", preProcess = c("center", "scale"), trControl = cv)
+print(modFit)
+```
+From the printout, we can see that the model produces very accurate predictions for the way 
+the exercises were executed (variable classe). The accuracy is 99.1 percent. However, the 
+computation was time consuming. Therefore, two other prediction models are tested. First, 
+linear discriminant analysis is applied.
+```{r}
+set.seed(789)
+modFit2 <- train(classe ~ ., data = TrainingSet, method = "lda", preProcess = c("center", "scale"), trControl = cv)
+print(modFit2)
+```
+With an accuracy of 70.2 percent, this model produces less accurate predictions 
+than the random forest method. Second, the quadratic discriminant analysis is applied.
+```{r}
+set.seed(147)
+modFit3 <- train(classe ~ ., data = TrainingSet, method = "qda", preProcess = c("center", "scale"), trControl = cv)
+print(modFit3)
+```
+With an accuracy of 86.9 precent, this model produces less accurate predictions than the
+random forest method. 
+
+###Out of sample error
+Because of its high accuracy, the random forest method is used to predict the class
+of exercises in the testing set (subsample of training set) in order to get the out of sample error.
+```{r}
+prediction <- predict(modFit,newdata=TestingSet)
+confusionMatrix(prediction,TestingSet$classe)
+```
+Here, the prediction accuracy is 99.24 percent.
+
+###Prediction
+
+Finally, predictions for the obervations in the test set are produced.
+```{r}
+predictionfinal <- predict(modFit,newdata=testing)
+predictionfinal
+print(rbind(testing$X, as.character(predictionfinal)))
+```
+
+
+
+
+
+
+
+
+
